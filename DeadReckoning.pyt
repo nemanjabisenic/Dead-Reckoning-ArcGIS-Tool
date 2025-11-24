@@ -11,7 +11,6 @@ Assumes input lat/lon are WGS 84 (EPSG:4326) or at least geographic degrees.
 """
 
 import arcpy
-import math
 
 
 def main():
@@ -162,7 +161,7 @@ def main():
 
     else:
         arcpy.AddWarning(
-            "No land mask provided; 'OnLand' field will remain 0 for all points."
+            "No valid land mask provided; 'OnLand' field will remain 0 for all points."
         )
 
     arcpy.AddMessage("PredictVesselPositions tool finished.")
@@ -185,13 +184,21 @@ def _split_path(full_path):
 def _parse_mask_inputs(mask_parameter):
     """
     Accept a semicolon-separated list of mask feature classes or a single path.
-    Returns a list of valid, non-empty paths.
+    Returns a list of valid, existing paths.
     """
     if not mask_parameter:
         return []
 
-    paths = [path.strip() for path in mask_parameter.split(";") if path.strip()]
-    return paths
+    raw_paths = [path.strip() for path in mask_parameter.split(";") if path.strip()]
+    valid_paths = []
+
+    for path in raw_paths:
+        if arcpy.Exists(path):
+            valid_paths.append(path)
+        else:
+            arcpy.AddWarning(f"Mask dataset does not exist and will be skipped: {path}")
+
+    return valid_paths
 
 
 if __name__ == "__main__":
