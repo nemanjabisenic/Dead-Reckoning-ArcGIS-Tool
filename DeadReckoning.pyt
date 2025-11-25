@@ -11,7 +11,6 @@ Assumes input lat/lon are WGS 84 (EPSG:4326) or at least geographic degrees.
 """
 
 import arcpy
-import math
 
 
 def main():
@@ -135,23 +134,25 @@ def main():
     arcpy.AddMessage("Predicted positions created. Checking against land mask...")
 
     # --- Landmask integration: flag points that fall on land ---
-    if land_mask:
-        # Make feature layers
+    mask_layers = _parse_mask_inputs(land_mask)
+    if mask_layers:
         arcpy.management.MakeFeatureLayer(out_fc, "lyr_predicted")
-        arcpy.management.MakeFeatureLayer(land_mask, "lyr_land")
+        arcpy.management.SelectLayerByAttribute("lyr_predicted", "CLEAR_SELECTION")
 
-        # Select predicted points that intersect land polygons
-        arcpy.management.SelectLayerByLocation(
-            "lyr_predicted",
-            "INTERSECT",
-            "lyr_land",
-            selection_type="NEW_SELECTION"
-        )
+        for idx, mask_path in enumerate(mask_layers):
+            lyr_name = f"lyr_land_{idx}"
+            arcpy.management.MakeFeatureLayer(mask_path, lyr_name)
+            arcpy.management.SelectLayerByLocation(
+                "lyr_predicted",
+                "INTERSECT",
+                lyr_name,
+                selection_type="ADD_TO_SELECTION"
+            )
 
-        # Update OnLand = 1 for selected points
-        with arcpy.da.UpdateCursor("lyr_predicted", ["OnLand"]) as ucur:
-            for (on_land_val,) in ucur:
-                ucur.updateRow((1,))
+        if int(arcpy.management.GetCount("lyr_predicted").getOutput(0)) > 0:
+            with arcpy.da.UpdateCursor("lyr_predicted", ["OnLand"]) as ucur:
+                for (on_land_val,) in ucur:
+                    ucur.updateRow((1,))
 
         arcpy.AddMessage(
             "Landmask integration complete. 'OnLand' field set to 1 "
@@ -159,7 +160,9 @@ def main():
         )
 
     else:
-        arcpy.AddWarning("No land mask provided; 'OnLand' field will remain 0 for all points.")
+        arcpy.AddWarning(
+            "No valid land mask provided; 'OnLand' field will remain 0 for all points."
+        )
 
     arcpy.AddMessage("PredictVesselPositions tool finished.")
 
@@ -176,6 +179,26 @@ def _split_path(full_path):
     if not ws:
         ws = arcpy.env.workspace
     return ws, name
+
+
+def _parse_mask_inputs(mask_parameter):
+    """
+    Accept a semicolon-separated list of mask feature classes or a single path.
+    Returns a list of valid, existing paths.
+    """
+    if not mask_parameter:
+        return []
+
+    raw_paths = [path.strip() for path in mask_parameter.split(";") if path.strip()]
+    valid_paths = []
+
+    for path in raw_paths:
+        if arcpy.Exists(path):
+            valid_paths.append(path)
+        else:
+            arcpy.AddWarning(f"Mask dataset does not exist and will be skipped: {path}")
+
+    return valid_paths
 
 
 if __name__ == "__main__":
